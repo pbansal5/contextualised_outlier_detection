@@ -12,7 +12,7 @@ class NN(nn.Module):
         super(NN, self).__init__()
         in_dim = 20
         #out_dim = in_dim
-        out_dim = 512
+        out_dim = 1024
         out_dim1 = 128
         #out_dim2 = 32
         #self.conv1 = nn.Sequential(nn.Conv2d(1,1,(3,1),1),nn.ReLU())
@@ -47,22 +47,33 @@ class Dataset_(torch.utils.data.Dataset):
         diff_prod_prev2 = self.feats[time_,:,prod_] - self.feats[time_-2,:,prod_]
         diff_prod_next2 = self.feats[time_,:,prod_] - self.feats[time_+2,:,prod_]
 
-        ratios_shop = np.array([diff_shop_prev.mean(),
-                           diff_shop_prev2.mean(),
-                           diff_shop_next.mean(),
-                           diff_shop_next2.mean(),
-                           diff_shop_prev.std(),
-                           diff_shop_prev2.std(),
-                           diff_shop_next.std(),
-                           diff_shop_next2.std()])
-        ratios_prod = np.array([diff_prod_prev.mean(),
-                           diff_prod_prev2.mean(),
-                           diff_prod_next.mean(),
-                           diff_prod_next2.mean(),
-                           diff_prod_prev.std(),
-                           diff_prod_prev2.std(),
-                           diff_prod_next.std(),
-                           diff_prod_next2.std()])
+        diff_shop_prev = np.concatenate([diff_shop_prev[:prod_],diff_shop_prev[prod_+1:]])
+        diff_shop_next = np.concatenate([diff_shop_next[:prod_],diff_shop_next[prod_+1:]])
+        diff_shop_prev2 = np.concatenate([diff_shop_prev2[:prod_],diff_shop_prev2[prod_+1:]])
+        diff_shop_next2 = np.concatenate([diff_shop_next2[:prod_],diff_shop_next2[prod_+1:]])
+
+        diff_prod_prev = np.concatenate([diff_prod_prev[:shop_],diff_prod_prev[shop_+1:]])
+        diff_prod_next = np.concatenate([diff_prod_next[:shop_],diff_prod_next[shop_+1:]])
+        diff_prod_prev2 = np.concatenate([diff_prod_prev2[:shop_],diff_prod_prev2[shop_+1:]])
+        diff_prod_next2 = np.concatenate([diff_prod_next2[:shop_],diff_prod_next2[shop_+1:]])
+
+        ratios_shop = np.array([np.nanmean(diff_shop_prev),
+                                np.nanmean(diff_shop_prev2),
+                                np.nanmean(diff_shop_next),
+                                np.nanmean(diff_shop_next2),
+                                np.nanstd(diff_shop_prev),
+                                np.nanstd(diff_shop_prev2),
+                                np.nanstd(diff_shop_next),
+                                np.nanstd(diff_shop_next2)])
+
+        ratios_prod = np.array([np.nanmean(diff_prod_prev),
+                                np.nanmean(diff_prod_prev2),
+                                np.nanmean(diff_prod_next),
+                                np.nanmean(diff_prod_next2),
+                                np.nanstd(diff_prod_prev),
+                                np.nanstd(diff_prod_prev2),
+                                np.nanstd(diff_prod_next),
+                                np.nanstd(diff_prod_next2)])
         most_detailed = np.array([self.feats[time_-1,shop_,prod_],self.feats[time_+1,shop_,prod_],self.feats[time_-2,shop_,prod_],self.feats[time_+2,shop_,prod_]])
         in_ = np.concatenate([most_detailed,ratios_shop,ratios_prod])[None,:]
         return (in_,out_,(time_,shop_,prod_))

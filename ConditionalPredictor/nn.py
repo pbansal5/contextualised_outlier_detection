@@ -49,8 +49,19 @@ if args.test:
     exit()
 
 
-train_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_20_modified.npy','../dataset/nyc_taxi_train_non_zero_no20_examples.npy')
-val_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_20_modified.npy','../dataset/nyc_taxi_test_non_zero_20_examples.npy')
+
+    
+# train_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_complete.npy','../dataset/nyc_taxi_train_non_zero_2zones_examples.npy')
+# val_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_complete.npy','../dataset/nyc_taxi_test_non_zero_2zones_examples.npy')
+
+# train_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_complete.npy','../dataset/nyc_taxi_train_non_zero_examples.npy')
+# val_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_complete.npy','../dataset/nyc_taxi_test_non_zero_examples.npy')
+
+# train_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_20_modified.npy','../dataset/nyc_taxi_train_non_zero_no20_examples.npy')
+# val_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_20_modified.npy','../dataset/nyc_taxi_test_non_zero_20_examples.npy')
+
+train_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_20_138_modified.npy','../dataset/nyc_taxi_train_non_zero_zonetime_100%_examples.npy')
+val_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_20_138_modified.npy','../dataset/nyc_taxi_test_non_zero_zonetime_100%_examples.npy')
 
 # train_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_complete.npy','../dataset/nyc_taxi_train_examples.npy')
 # val_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_complete.npy','../dataset/nyc_taxi_test_examples.npy')
@@ -59,7 +70,7 @@ val_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_20_modified.npy','../
 # val_set = Dataset_('../dataset/nyc_taxi_norm_meadian_numpy_20_modified.npy','../dataset/nyc_taxi_test_all_20_examples.npy')
 
 train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = True,shuffle=True)
-val_loader = torch.utils.data.DataLoader(val_set,batch_size = batch_size,drop_last = True,shuffle=True)
+val_loader = torch.utils.data.DataLoader(val_set,batch_size = batch_size,drop_last = False,shuffle=True)
 model = NN().to(device)
 if (args.warm_start):
     model.load_state_dict(torch.load(args.checkpoint))
@@ -67,7 +78,7 @@ optim = torch.optim.Adam(model.parameters(),lr=lr)#,weight_decay = 1e-3)
 
 
 writer = SummaryWriter(os.path.join('runs',args.log_file))
-max_epoch = 400
+max_epoch = 100
 iteration = 0
 
 for epoch in range(max_epoch):
@@ -92,6 +103,6 @@ for epoch in range(max_epoch):
                 x = x.to(device)
                 y_pred = model(x)
                 y = y.to(device)
-                loss_ += loss(y,y_pred).data
-        loss_ = loss_/int(len(val_set)/batch_size)
+                loss_ += loss(y,y_pred).data*x.shape[0]
+        loss_ = loss_/int(len(val_set))
         writer.add_scalar('validation/loss',loss_,iteration)
