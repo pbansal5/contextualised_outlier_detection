@@ -18,7 +18,7 @@ class NN(nn.Module):
         feats = 3
         embedding_size = 50
         layer_size = 400
-        latent_size = 5
+        latent_size = 10
         
         self.feat_info = [["time",'categ',31],['pulocation','categ',266],['dolocation','categ',266]]
         self.size_input = feats*50
@@ -32,6 +32,7 @@ class NN(nn.Module):
         self.fc2 = nn.Linear(layer_size, latent_size)
 
         self.fc3 = nn.Linear(latent_size,1)
+        self.fc4 = nn.Linear(latent_size,1)
         self.activ = nn.ReLU()
 
 
@@ -56,7 +57,8 @@ class NN(nn.Module):
         fc1_out = self.activ(self.fc1(input_values))
         fc2_out = self.activ(self.fc2(fc1_out))
         out = self.fc3(fc2_out)
-        return out.squeeze() 
+        out1 = self.fc4(fc2_out)
+        return out.squeeze(),out1.squeeze() 
 
     
 class Dataset_(torch.utils.data.Dataset):

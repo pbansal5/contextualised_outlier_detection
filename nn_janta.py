@@ -20,60 +20,11 @@ args = parser.parse_args()
 
 device = torch.device('cuda:%d'%args.device)
 batch_size = 128
-lr = 1e-4
-
-loss = torch.nn.L1Loss()
-
-if args.test:
-    test_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_test.npy')
-    test_loader = torch.utils.data.DataLoader(test_set,batch_size = batch_size,drop_last = True)
-    model = NN().to(device)
-    model.load_state_dict(torch.load(args.checkpoint))
-    pred_ = []
-    for x,y,_ in test_loader :
-        loss_ = 0
-        with torch.no_grad():
-            x = x.to(device)
-            y_pred = model(x)
-            y = y.to(device)
-            loss_ += loss(y,y_pred).data
-            for i in range(batch_size):
-                pred_.append([y[i].data.cpu().numpy(),y_pred[i].data.cpu().numpy()])
-            
-    loss_ = (loss_/int(len(test_set)/batch_size)).cpu().data.numpy()
-    print (loss_)
-    pred_ = np.array(pred_)
-    print (pred_.shape)
-    np.save('dataset/predictions_russian.npy',pred_)
-    exit()
+lr = 1e-3
 
 
-
-# train_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_complete.npy','dataset/nyc_taxi_train_non_zero_2zones_examples.npy')
-# val_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_complete.npy','dataset/nyc_taxi_test_non_zero_2zones_examples.npy')
-
-# train_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_complete.npy','dataset/nyc_taxi_train_non_zero_examples.npy')
-# val_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_complete.npy','dataset/nyc_taxi_test_non_zero_examples.npy')
-
-train_set = Dataset_('dataset/nyc_taxi_norm_noshift_numpy_complete.npy','dataset/nyc_taxi_train_non_zero_examples.npy')
-val_set3 = Dataset_('dataset/nyc_taxi_norm_noshift_numpy_complete.npy','dataset/nyc_taxi_test_non_zero_examples.npy')
-
-# train_set = Dataset_('dataset/nyc_taxi_norm_noshift_numpy_complete.npy','dataset/nyc_taxi_train_our_examples.npy')
-# val_set1 = Dataset_('dataset/nyc_taxi_norm_mean_numpy_our.npy','dataset/nyc_taxi_test_our_outlier_examples.npy')
-# val_set2 = Dataset_('dataset/nyc_taxi_norm_mean_numpy_our.npy','dataset/nyc_taxi_test_our_inlier_examples.npy')
-# val_set3 = Dataset_('dataset/nyc_taxi_norm_noshift_numpy_complete.npy','dataset/nyc_taxi_test_our_truly_inlier_examples.npy')
-
-# train_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_20_138_modified.npy','dataset/nyc_taxi_train_non_zero_zonetime_100%_examples.npy')
-# val_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_20_138_modified.npy','dataset/nyc_taxi_test_non_zero_zonetime_100%_examples.npy')
-
-# train_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_20_modified.npy','dataset/nyc_taxi_train_non_zero_no20_examples.npy')
-# val_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_20_modified.npy','dataset/nyc_taxi_test_non_zero_20_examples.npy')
-
-# train_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_complete.npy','dataset/nyc_taxi_train_examples.npy')
-# val_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_complete.npy','dataset/nyc_taxi_test_examples.npy')
-
-# train_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_20_modified.npy','dataset/nyc_taxi_train_all_no20_examples.npy')
-# val_set = Dataset_('dataset/nyc_taxi_norm_meadian_numpy_20_modified.npy','dataset/nyc_taxi_test_all_20_examples.npy')
+train_set = Dataset_('dataset/jantahack_noshift_numpy_complete.npy','dataset/jantahack_train_examples.npy')
+val_set3 = Dataset_('dataset/jantahack_noshift_numpy_complete.npy','dataset/jantahack_test_examples.npy')
 
 train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = False,shuffle=True)
 # val_loader1 = torch.utils.data.DataLoader(val_set1,batch_size = batch_size,drop_last = False,shuffle=True)
