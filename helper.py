@@ -45,7 +45,50 @@ class NN(nn.Module):
         out = self.linear1(x)
         return self.linear4(out).squeeze(),torch.exp(self.linear5(out).squeeze())
 
+class TimeSeries(nn.Module):
+    def __init__(self):
+        super(TimeSeries, self).__init__()
+        hidden_dim = 32
+        self.gru_left = nn.GRU(input_size=1,hidden_size=hidden_dim,bidirectional=True)
+        self.gru_right = nn.GRU(input_size=1,hidden_size=hidden_dim,bidirectional=True)
+        self.linear = nn.Linear(4*hidden_dim,1)
+        
+    def forward(self, x_left,x_right):
+        out_left,_ = self.gru_left(x_left.transpose(0,1).unsqueeze(axis=2))
+        out_right,_ = self.gru_right(x_right.transpose(0,1).unsqueeze(axis=2))
+        out_left = out_left[-1,:,:]
+        out_right = out_right[-1,:,:]
+        return self.linear(torch.cat([out_left,out_right],axis=1)).squeeze()
 
+
+class TimeSeriesDataset_(torch.utils.data.Dataset):
+    def __init__(self,feats_file,examples_file):
+        print ('loading dataset')
+        self.feats = torch.from_numpy(np.load(feats_file).astype(np.float32))
+        self.examples_file = np.load(examples_file).astype(np.int)
+        
+    def __getitem__(self,index):
+        time_ = self.examples_file[index][0]
+        shop_ = self.examples_file[index][1]
+        prod_ = self.examples_file[index][2]
+        out_left = self.feats[:time_,shop_,prod_]
+        out_right = self.feats[time_+1:,shop_,prod_]
+        out_ = self.feats[time_,shop_,prod_]
+        return out_left,out_right,out_
+
+    def __len__(self):
+        return self.examples_file.shape[0]
+
+def time_series_collate(batch):
+    (x_left, x_right, y) = zip(*batch)
+    # x_l_lens = [len(x) for x in x_left]
+    # x_r_lens = [len(x) for x in x_right]
+    # y_lens = [len(x) for x in y]
+    x_left = torch.nn.utils.rnn.pad_sequence(x_left,batch_first=True,padding_value=0)
+    x_right = torch.nn.utils.rnn.pad_sequence(x_right,batch_first=True,padding_value=0)
+    return x_left,x_right,torch.FloatTensor(y)
+
+    
 class Dataset_(torch.utils.data.Dataset):
     def __init__(self,feats_file,examples_file):
         print ('loading dataset')

@@ -6,7 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 import matplotlib.pyplot as plt
 import _pickle as cPickle
-from helper import NN, Dataset_
+from helper import Dataset_,NN_Janta
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-d', '--device', type=int,help='device')
@@ -20,26 +20,27 @@ args = parser.parse_args()
 
 device = torch.device('cuda:%d'%args.device)
 batch_size = 128
-lr = 1e-4
+lr = 1e-3
 
+loss = torch.nn.L1Loss()
 
-train_set = Dataset_('dataset/jantahack_noshift_numpy_complete.npy','dataset/jantahack_train_examples.npy')
-val_set3 = Dataset_('dataset/jantahack_noshift_numpy_complete.npy','dataset/jantahack_test_examples.npy')
+    
+train_set = Dataset_('../dataset/jantahack_noshift_numpy_complete.npy','../dataset/jantahack_train_examples.npy')
+val_set3 = Dataset_('../dataset/jantahack_noshift_numpy_complete.npy','../dataset/jantahack_test_examples.npy')
 
 train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = False,shuffle=True)
 # val_loader1 = torch.utils.data.DataLoader(val_set1,batch_size = batch_size,drop_last = False,shuffle=True)
 # val_loader2 = torch.utils.data.DataLoader(val_set2,batch_size = batch_size,drop_last = False,shuffle=True)
 val_loader3 = torch.utils.data.DataLoader(val_set3,batch_size = batch_size,drop_last = False,shuffle=True)
 
-model = NN().to(device)
+model = NN_Janta().to(device)
 if (args.warm_start):
     model.load_state_dict(torch.load(args.checkpoint))
-optim = torch.optim.SGD(model.parameters(),lr=lr,momentum=0.9)#,weight_decay = 1e-3)
-#optim = torch.optim.Adam(model.parameters(),lr=lr)#,weight_decay = 1e-3)
+optim = torch.optim.Adam(model.parameters(),lr=lr)#,weight_decay = 1e-3)
 
 
 writer = SummaryWriter(os.path.join('runs',args.log_file))
-max_epoch = 100
+max_epoch = 50
 iteration = 0
 
 for epoch in range(max_epoch):
@@ -49,17 +50,15 @@ for epoch in range(max_epoch):
         x = x.to(device)
         y_pred,var = model(x)
         y = y.to(device)
-        loss_ = (((y_pred-y)**2)/var + var).mean()  #nllloss(y,y_pred,var)
+        loss_ = (((y_pred-y)**2)/var + var).mean()
         optim.zero_grad()
         loss_.backward()
-        #torch.nn.utils.clip_grad_norm_(model.parameters(),1)
         optim.step()
         iteration += 1
         writer.add_scalar('training/loss',loss_,iteration)
 
     if (epoch % 1 == 0):
         torch.save(model.state_dict(), os.path.join(args.out_dir,'checkpoint_%d'%epoch))
-        
         # loss_ = 0
         # for x,y,_ in val_loader1 :
         #     with torch.no_grad():
