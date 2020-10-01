@@ -43,22 +43,24 @@ class NN(nn.Module):
         
     def forward(self, x):
         out = self.linear1(x)
-        return self.linear4(out).squeeze(),torch.exp(self.linear5(out).squeeze())
+        return self.linear4(out).squeeze(),self.linear5(out).squeeze()
 
 class TimeSeries(nn.Module):
     def __init__(self):
         super(TimeSeries, self).__init__()
-        hidden_dim = 32
+        hidden_dim = 64
         self.gru_left = nn.GRU(input_size=1,hidden_size=hidden_dim,bidirectional=True)
         self.gru_right = nn.GRU(input_size=1,hidden_size=hidden_dim,bidirectional=True)
-        self.linear = nn.Linear(4*hidden_dim,1)
+        self.mean = nn.Linear(4*hidden_dim,1)
+        self.std = nn.Linear(4*hidden_dim,1)
         
     def forward(self, x_left,x_right):
         out_left,_ = self.gru_left(x_left.transpose(0,1).unsqueeze(axis=2))
         out_right,_ = self.gru_right(x_right.transpose(0,1).unsqueeze(axis=2))
         out_left = out_left[-1,:,:]
         out_right = out_right[-1,:,:]
-        return self.linear(torch.cat([out_left,out_right],axis=1)).squeeze()
+        temp = torch.cat([out_left,out_right],axis=1)
+        return self.mean(temp).squeeze(),self.std(temp).squeeze()
 
 
 class TimeSeriesDataset_(torch.utils.data.Dataset):

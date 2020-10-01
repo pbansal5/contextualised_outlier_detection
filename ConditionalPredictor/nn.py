@@ -95,7 +95,7 @@ for epoch in range(max_epoch):
         x = x.to(device)
         y_pred,var = model(x)
         y = y.to(device)
-        loss_ = (((y_pred-y)**2)/var + var).mean()
+        loss_ = (((y_pred-y)**2)/torch.exp(var) + var).mean()
         optim.zero_grad()
         loss_.backward()
         optim.step()
@@ -130,6 +130,6 @@ for epoch in range(max_epoch):
                 x = x.to(device)
                 y_pred,var = model(x)
                 y = y.to(device)
-                loss_ += (((y_pred-y)**2)/var + var).mean().data*x.shape[0]
+                loss_ += (((y_pred-y)**2)/torch.exp(var) + var).mean().data*x.shape[0]
         loss_ = loss_/int(len(val_set3))
         writer.add_scalar('validation/truly_inliers_loss',loss_,iteration)

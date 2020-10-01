@@ -15,7 +15,7 @@ parser.add_argument('-o', '--out-dir', type=str,help='dir to save checkpoints')
 parser.add_argument('-t', '--test', action='store_true',help='test')
 parser.add_argument('-w', '--warm-start', action='store_true',help='warm_start')
 parser.add_argument('-f', '--test-file', type=str,help='test-file')
-parser.add_argument('-c', '--checkpoint', type=str,help='checkpoint')
+parser.add_argument('-e', '--start-epoch', type=int,help='checkpoint')
 args = parser.parse_args()
 
 device = torch.device('cuda:%d'%args.device)
@@ -35,34 +35,36 @@ train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,dro
 val_loader3 = torch.utils.data.DataLoader(val_set3,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = time_series_collate)
 
 model = TimeSeries().to(device)
-
-if (args.warm_start):
-    model.load_state_dict(torch.load(args.checkpoint))
 optim = torch.optim.Adam(model.parameters(),lr=lr)
 
 writer = SummaryWriter(os.path.join('runs',args.log_file))
-max_epoch = 100
+max_epoch = 400
 iteration = 0
+start_epoch = 0
 
-for epoch in range(max_epoch):
+if (args.warm_start):
+    model.load_state_dict(torch.load(os.path.join(args.out_dir,'checkpoint_%d'%(args.start_epoch-1))))
+    iteration = int(args.start_epoch*len(train_set)/batch_size)
+    start_epoch = args.start_epoch
+
+for epoch in range(start_epoch,max_epoch):
     print ("Starting Epoch : %d"%epoch)
     for x_right,x_left,y in train_loader :
-        y_pred = model(x_right.to(device),x_left.to(device))
+        y_pred,var = model(x_right.to(device),x_left.to(device))
         y = y.to(device)
-        loss_ = mse_loss(y,y_pred)
+        loss_ = (((y_pred-y)**2)/torch.exp(var) + var).mean()
         optim.zero_grad()
         loss_.backward()
         optim.step()
         iteration += 1
         writer.add_scalar('training/loss',loss_,iteration)
-    print ("Done training")
-    if (epoch % 1 == 0):
+    if (epoch % 2 == 0):
         torch.save(model.state_dict(), os.path.join(args.out_dir,'checkpoint_%d'%epoch))
         loss_ = 0
         for x_right,x_left,y in val_loader3 :
             with torch.no_grad() :
-                y_pred = model(x_right.to(device),x_left.to(device))
+                y_pred,var = model(x_right.to(device),x_left.to(device))
                 y = y.to(device)
-                loss_ += mse_loss(y,y_pred).data*x_right.shape[0]
+                loss_ += (((y_pred-y)**2)/torch.exp(var) + var).mean().data*x_right.shape[0]
         loss_ = loss_/int(len(val_set3))
         writer.add_scalar('validation/truly_inliers_loss',loss_,iteration)
