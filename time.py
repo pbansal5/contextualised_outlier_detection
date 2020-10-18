@@ -25,8 +25,8 @@ lr = 1e-4
 mse_loss = torch.nn.MSELoss()
 
 
-train_set = TimeSeriesDataset_('dataset/nyc_taxi_unnorm_numpy.npy','dataset/nyc_taxi_train_non_zero_examples.npy')
-val_set3 = TimeSeriesDataset_('dataset/nyc_taxi_unnorm_numpy.npy','dataset/nyc_taxi_test_non_zero_examples.npy')
+train_set = TimeSeriesDataset_('dataset/nyc_taxi_norm_noshift_numpy_complete.npy','dataset/nyc_taxi_train_non_zero_examples.npy')
+val_set3 = TimeSeriesDataset_('dataset/nyc_taxi_norm_noshift_numpy_complete.npy','dataset/nyc_taxi_test_non_zero_examples.npy')
 
 # train_set = Dataset_('dataset/jantahack_nonorm_numpy_complete.npy','dataset/jantahack_train_examples.npy')
 # val_set3 = Dataset_('dataset/jantahack_nonorm_numpy_complete.npy','dataset/jantahack_test_examples.npy')

@@ -27,8 +27,8 @@ mse_loss = torch.nn.MSELoss()
 
 # train_set = TimeSeriesDataset_('dataset/nyc_taxi_unnorm_numpy.npy','dataset/nyc_taxi_train_non_zero_examples.npy')
 # val_set3 = TimeSeriesDataset_('dataset/nyc_taxi_unnorm_numpy.npy','dataset/nyc_taxi_test_non_zero_examples.npy')
-train_set = TimeSeriesDataset_('dataset/jantahack_nonorm_numpy_complete.npy','dataset/jantahack_train_examples.npy')
-val_set3 = TimeSeriesDataset_('dataset/jantahack_nonorm_numpy_complete.npy','dataset/jantahack_test_examples.npy')
+train_set = TimeSeriesDataset_('dataset/jantahack_noshift_numpy_complete.npy','dataset/jantahack_train_examples.npy')
+val_set3 = TimeSeriesDataset_('dataset/jantahack_noshift_numpy_complete.npy','dataset/jantahack_test_examples.npy')
 
 
 train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = time_series_collate)
@@ -38,7 +38,7 @@ model = TimeSeries().to(device)
 optim = torch.optim.Adam(model.parameters(),lr=lr)
 
 writer = SummaryWriter(os.path.join('runs',args.log_file))
-max_epoch = 400
+max_epoch = 800
 iteration = 0
 start_epoch = 0
 
