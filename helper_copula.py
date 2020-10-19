@@ -11,10 +11,8 @@ from scipy.stats import norm
 import random
     
 class CopulaModel(nn.Module):
-    def __init__(self):
+    def __init__(self,hidden_dim=64,rank=32):
         super(CopulaModel, self).__init__()
-        hidden_dim = 64
-        rank = 64
         self.num_layers = 2
         self.gru_left = nn.GRU(input_size=1,hidden_size=hidden_dim,num_layers = self.num_layers,bidirectional=False)
         self.gru_right = nn.GRU(input_size=1,hidden_size=hidden_dim,num_layers = self.num_layers,bidirectional=False)
@@ -62,11 +60,11 @@ class CopulaModel(nn.Module):
         
 
 class CopulaDataset_(torch.utils.data.Dataset):
-    def __init__(self,feats_file,examples_file):
+    def __init__(self,feats_file,examples_file,k=10):
         print ('loading dataset')
         self.feats = np.load(feats_file).astype(np.float32)
         #self.feats = self.feats.view(self.feats.shape[0],-1)
-        self.k = 10
+        self.k = k
         self.examples_file = np.load(examples_file).astype(np.int)
         self.residuals = np.zeros(self.feats.shape).astype(np.float)
         self.shop_prods = [[] for x in range(np.max(self.examples_file[:,0])+1)]
@@ -114,14 +112,15 @@ class CopulaDataset_(torch.utils.data.Dataset):
         return self.examples_file.shape[0]
 
 class ValidationCopulaDataset_(torch.utils.data.Dataset):
-    def __init__(self,feats_file,examples_file):
+    def __init__(self,feats_file,examples_file,rank = 4):
         print ('loading dataset')
-        rank = 64
         self.feats = np.load(feats_file).astype(np.float32)
         self.shape = self.feats.shape
         self.feats = np.reshape(self.feats,(self.feats.shape[0],-1))
         self.examples_file = np.load(examples_file).astype(np.int)
         self.mus = np.zeros(self.feats.shape).astype(np.float)
+        self.vs = np.zeros((self.feats.shape[0],self.feats.shape[1],rank)).astype(np.float)
+        self.ds = np.zeros(self.feats.shape).astype(np.float)
         self.sigmas = np.zeros((self.feats.shape[0],self.feats.shape[1],self.feats.shape[1])).astype(np.float)
         self.gauss = np.zeros(self.feats.shape)
         self.normalised = np.zeros(self.feats.shape)
@@ -142,13 +141,24 @@ class ValidationCopulaDataset_(torch.utils.data.Dataset):
         time_ = self.examples_file[index][0]
         index = self.examples_file[index][1]*self.shape[2] + self.examples_file[index][2]
         
-        mu_others = np.concatenate([self.mus[time_][:index],self.mus[time_][index+1:]],axis=0)[None,:]
-        sigma_others = np.concatenate([self.sigmas[time_][:index,:],self.sigmas[time_][index+1:,:]],axis=0)
-        sigma_others = np.concatenate([sigma_others[:,:index],sigma_others[:,index+1:]],axis=1)
+        x_others = np.delete(self.gauss[time_],index,axis=0)[None,:]
+        mu_others = np.delete(self.mus[time_],index,axis=0)[None,:]
+        d_others_inv = np.diag(1/np.delete(self.ds[time_],index,axis=0))
+        v = np.delete(self.vs[time_],index,axis=0)
+
+        # x_others = np.concatenate([self.gauss[time_][:index],self.gauss[time_][index+1:]],axis=0)[None,:]
+        # mu_others = np.concatenate([self.mus[time_][:index],self.mus[time_][index+1:]],axis=0)[None,:]
+        # d_others_inv = np.diag(1/np.concatenate([self.ds[time_][:index],self.ds[time_][index+1:]],axis=0))
+        # v = np.concatenate([self.vs[time_,:index,:],self.vs[time_,index+1:,:]],axis=0)
+
+        middle_factor = np.matmul(v.transpose(),np.matmul(d_others_inv,v))
+        middle_factor += np.diag(np.ones(middle_factor.shape[0]))
+        middle_factor = np.linalg.inv(middle_factor)
+        other_factor = np.matmul(d_others_inv,v)
+        sigma_others_inverse = d_others_inv - np.matmul(other_factor,np.matmul(middle_factor,other_factor.transpose()))
         sigma12 = self.sigmas[time_,index,:]
         sigma12 = np.concatenate([sigma12[:index],sigma12[index+1:]],axis=0)[None,:]
-        x_others = np.concatenate([self.gauss[time_][:index],self.gauss[time_][index+1:]],axis=0)[None,:]
-        sigma_others_inverse = np.linalg.inv(sigma_others)
+        
         temp = np.matmul(sigma_others_inverse,(x_others-mu_others)[0][:,None])
         mean = self.mus[time_,index] - np.matmul(sigma12,temp)
         var = self.sigmas[time_,index,index] - np.matmul(sigma12,np.matmul(sigma_others_inverse,sigma12[0][:,None]))
@@ -164,7 +174,10 @@ class ValidationCopulaDataset_(torch.utils.data.Dataset):
             x_right = torch.flip(torch.from_numpy(self.normalised[time_+1:]),dims=(0,)).transpose(0,1)
             mut,vt,dt = model.infer(x_right.to(device),x_left.to(device))
             self.mus[time_,:] = mut.squeeze().cpu().data.numpy()
+            self.vs[time_,:,:] = vt.squeeze().cpu().data.numpy()
+            self.ds[time_,:] = dt.squeeze().cpu().data.numpy()
             self.sigmas[time_,:,:] = (torch.matmul(vt.squeeze(),vt.squeeze().transpose(0,1))+torch.diag(dt.squeeze())).data.cpu().numpy()
+        return self.sigmas
         
     def __len__(self):
         return self.examples_file.shape[0]

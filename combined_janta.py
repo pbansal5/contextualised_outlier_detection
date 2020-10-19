@@ -35,8 +35,8 @@ update_loader = torch.utils.data.DataLoader(update_set,batch_size = batch_size,d
 
 model = Proposal1Model(size1=76,size2=28).to(device)
 optim = torch.optim.Adam(model.parameters(),lr=lr)
-model.embeddings1 = torch.load('saved_embeddings/janta_shop.pt').weight
-model.embeddings2 = torch.load('saved_embeddings/janta_sku.pt').weight
+# model.embeddings1 = torch.load('saved_embeddings/janta_shop.pt').weight
+# model.embeddings2 = torch.load('saved_embeddings/janta_sku.pt').weight
 
 
 writer = SummaryWriter(os.path.join('runs',args.log_file))
@@ -60,7 +60,10 @@ for epoch in range(start_epoch,max_epoch):
 
         loss1,loss2 = model(x_right.to(device),x_left.to(device),y.to(device),context_info)
         optim.zero_grad()
-        (loss1+loss2).backward()
+        if (epoch > 100):
+            (loss1+loss2).backward()
+        else :
+            loss1.backward()
         optim.step()
         iteration += 1
         writer.add_scalar('training/time_series_loss',loss1,iteration)
@@ -79,6 +82,6 @@ for epoch in range(start_epoch,max_epoch):
         loss2_ = loss2_/int(len(val_set3))
         writer.add_scalar('validation/time_series_loss',loss1_,iteration)
         writer.add_scalar('validation/outlier_loss',loss2_,iteration)
-
-        train_set.update_residuals(model,update_loader,device)
-        val_set3.residuals = train_set.residuals
+        if (epoch > 99):
+            train_set.update_residuals(model,update_loader,device)
+            val_set3.residuals = train_set.residuals

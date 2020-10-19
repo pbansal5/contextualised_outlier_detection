@@ -51,7 +51,7 @@ class Proposal1Model(nn.Module):
     def __init__(self,size1=266,size2=266):
         super(Proposal1Model, self).__init__()
         hidden_dim = 64
-        embedding_size = 50
+        embedding_size = 32
         self.k = 20
         self.tau = 1
         self.num_layers = 2
@@ -64,12 +64,12 @@ class Proposal1Model(nn.Module):
         self.outlier_layer1 = nn.Linear(8,64)
         self.mean_outlier_layer = nn.Linear(64,1)
         self.std_outlier_layer = nn.Linear(64,1)
-        self.embeddings1.requires_grad = True#False
-        self.embeddings2.requires_grad = True#False
+        # self.embeddings1.requires_grad = True#False
+        # self.embeddings2.requires_grad = True#False
 
     def compute_feats(self,y_context1,y_context2,index1,index2):
-        similarity1 = torch.cdist(self.embeddings1[index1].unsqueeze(0),self.embeddings1.unsqueeze(0),p=2).squeeze()
-        similarity2 = torch.cdist(self.embeddings2[index2].unsqueeze(0),self.embeddings2.unsqueeze(0),p=2).squeeze()
+        similarity1 = torch.cdist(self.embeddings1.weight[index1].unsqueeze(0),self.embeddings1.weight.unsqueeze(0),p=2).squeeze()
+        similarity2 = torch.cdist(self.embeddings2.weight[index2].unsqueeze(0),self.embeddings2.weight.unsqueeze(0),p=2).squeeze()
         indices1 = torch.argsort(similarity1)[:,-(self.k+1):-1]
         indices2 = torch.argsort(similarity2)[:,-(self.k+1):-1]
         weights1 = torch.exp(-similarity1[:,-(self.k+1):-1]/self.tau)
@@ -95,7 +95,7 @@ class Proposal1Model(nn.Module):
         y1_context = context_info['y1_context']
         y2_context = context_info['y2_context']
 
-        feats = torch.cat([self.compute_feats(y1_context,y2_context,index1,index2).to(x_left.device),mean_time_series,std_time_series],axis=1)
+        feats = torch.cat([self.compute_feats(y1_context.to(x_left.device),y2_context.to(x_left.device),index1,index2).to(x_left.device),mean_time_series,std_time_series],axis=1)
         feats = self.outlier_layer1(feats).clamp(min=0)
         mean_outlier = self.mean_outlier_layer(feats)
         std_outlier = self.std_outlier_layer(feats)

@@ -19,34 +19,27 @@ parser.add_argument('-e', '--start-epoch', type=int,help='checkpoint')
 args = parser.parse_args()
 
 device = torch.device('cuda:%d'%args.device)
-batch_size = 64
-lr = 1e-3
+batch_size = 48
+lr = 1e-4
 
 mse_loss = torch.nn.MSELoss()
 
 
-train_set = CopulaDataset_('dataset/jantahack_complete.npy','dataset/jantahack_train_examples.npy')
-val_set3 = ValidationCopulaDataset_('dataset/jantahack_complete.npy','dataset/jantahack_test_examples.npy')
+train_set = CopulaDataset_('dataset/sanity_complete.npy','dataset/sanity_train_examples.npy',k=4)
+val_set3 = ValidationCopulaDataset_('dataset/sanity_complete.npy','dataset/sanity_test_examples.npy')
 
 train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = copula_collate)
 val_loader3 = torch.utils.data.DataLoader(val_set3,batch_size = batch_size,drop_last = False,shuffle=True)
 
-model = CopulaModel().to(device)
+model = CopulaModel(hidden_dim=4,rank=4).to(device)
 optim = torch.optim.Adam(model.parameters(),lr=lr)
+writer = SummaryWriter(os.path.join('runs','sanity'))
 
-writer = SummaryWriter(os.path.join('runs',args.log_file))
-max_epoch = 800
+max_epoch = 100
 iteration = 0
 start_epoch = 0
-
-if (args.warm_start):
-    model_dict = model.state_dict()
-    pretrained_dict = torch.load(os.path.join(args.out_dir,'checkpoint_%d'%(args.start_epoch-1)))
-    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
-    model_dict.update(pretrained_dict) 
-    model.load_state_dict(model_dict)
-    iteration = int(args.start_epoch*len(train_set)/batch_size)
-    start_epoch = args.start_epoch
+best_loss = 1000
+best_sigma = 0
 
 for epoch in range(start_epoch,max_epoch):
     print ("Starting Epoch : %d"%epoch)
@@ -58,14 +51,22 @@ for epoch in range(start_epoch,max_epoch):
         optim.step()
         iteration += 1
         writer.add_scalar('training/time_series_loss',loss,iteration)
-        
+
+        #print (iteration,float(loss.data.cpu().numpy()))
+
     torch.save(model.state_dict(), os.path.join(args.out_dir,'checkpoint_%d'%epoch))
-    if ((epoch+1) % 10 == 0):
+    if ((epoch+1) % 1 == 0):
         loss_ = 0
         with torch.no_grad() :
-            val_set3.fill(model)
+            this_sigma = val_set3.fill(model)
             for i,err in enumerate(val_loader3):
                 loss_ += err.data.sum()
         loss_ = loss_/int(len(val_set3))
+        #print ('Validation Loss : ', iteration,float(loss.data.cpu().numpy()))
         writer.add_scalar('validation/time_series_loss',loss_,iteration)
-
+        if (loss_ < best_loss):
+            best_loss = float(loss_.data.cpu().numpy())
+            best_sigma = this_sigma
+            
+np.save('dataset/best_sigma.npy',best_sigma)
+        
