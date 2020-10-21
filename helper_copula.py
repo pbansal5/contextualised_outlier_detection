@@ -66,7 +66,6 @@ class CopulaDataset_(torch.utils.data.Dataset):
         #self.feats = self.feats.view(self.feats.shape[0],-1)
         self.k = k
         self.examples_file = np.load(examples_file).astype(np.int)
-        self.residuals = np.zeros(self.feats.shape).astype(np.float)
         self.shop_prods = [[] for x in range(np.max(self.examples_file[:,0])+1)]
         for i in range (self.examples_file.shape[0]):
             temp = self.examples_file[i]
@@ -75,6 +74,7 @@ class CopulaDataset_(torch.utils.data.Dataset):
         self.probs = [norm.ppf(i/self.m) for i in range(1,self.m)]
         self.probsdelta = 1/((self.m**0.25)*4*np.sqrt(3.14*np.log(self.m)))
         self.probs.append(norm.ppf(1-self.probsdelta))
+        #self.time_gauss_values = np.zeros(self.feats.shape).astype(np.float)
         
     def __getitem__(self,index):
         time_ = self.examples_file[index][0]
@@ -86,7 +86,7 @@ class CopulaDataset_(torch.utils.data.Dataset):
         for x in indices :
             temp_out = self.feats[time_,x[0],x[1]]
             temp = np.concatenate([self.feats[:time_,x[0],x[1]],self.feats[time_+1:,x[0],x[1]]])
-            temp = temp + np.random.rand(*temp.shape)/1000
+            temp = temp + np.random.rand(*temp.shape)/1e6
             a = (temp<temp_out).sum()
             if (a != 0 and a != self.m):
                 upper = temp[temp <= temp_out].max()
@@ -102,17 +102,19 @@ class CopulaDataset_(torch.utils.data.Dataset):
             out_right.append(torch.flip(torch.from_numpy(temp[time_:]),dims=(0,)))
             out_left.append(torch.from_numpy(temp[:time_]))
             out_.append(temp_out)
+            
         out_ = torch.FloatTensor(out_)
         out_left = torch.stack(out_left,dim=0).transpose(0,1)
         out_right = torch.stack(out_right,dim=0).transpose(0,1)
-        
+        #self.time_gauss_values[time_,indices[-1][0],indices[-1][1]] = out_[-1].float()
+
         return out_left.float(),out_right.float(),out_.float()
     
     def __len__(self):
         return self.examples_file.shape[0]
 
 class ValidationCopulaDataset_(torch.utils.data.Dataset):
-    def __init__(self,feats_file,examples_file,rank = 4):
+    def __init__(self,feats_file,examples_file,rank = 32):
         print ('loading dataset')
         self.feats = np.load(feats_file).astype(np.float32)
         self.shape = self.feats.shape
@@ -127,15 +129,16 @@ class ValidationCopulaDataset_(torch.utils.data.Dataset):
         
         self.m = self.feats.shape[0]
         
-        temp = np.argsort(self.feats,axis=0)
-        ranks = np.empty_like(temp)
-        np.put_along_axis(ranks, temp, np.repeat(np.arange(temp.shape[0])[:,None],temp.shape[1],axis=1), axis=0)
-        self.gauss = ranks/self.feats.shape[0]
-        self.gauss[self.gauss == 0] = 1/((self.m**0.25)*4*np.sqrt(3.14*np.log(self.m)))
-
         mean = np.mean(self.feats,axis=0)
         std = np.maximum(np.std(self.feats,axis=0),1e-7)
         self.normalised = (self.feats-mean)/std
+
+        temp = np.argsort(self.normalised,axis=0)
+        ranks = np.empty_like(temp)
+        np.put_along_axis(ranks, temp, np.repeat(np.arange(temp.shape[0])[:,None],temp.shape[1],axis=1), axis=0)
+        self.gauss = norm.ppf(ranks/self.feats.shape[0])
+        self.gauss[self.gauss == float('-inf')] = norm.ppf(1/((self.m**0.25)*4*np.sqrt(3.14*np.log(self.m))))
+        self.gauss[self.gauss == float('inf')] = norm.ppf(1-(1/((self.m**0.25)*4*np.sqrt(3.14*np.log(self.m)))))
 
     def __getitem__(self,index):
         time_ = self.examples_file[index][0]

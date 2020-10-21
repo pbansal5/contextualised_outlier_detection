@@ -18,15 +18,15 @@ parser.add_argument('-f', '--test-file', type=str,help='test-file')
 parser.add_argument('-e', '--start-epoch', type=int,help='checkpoint')
 args = parser.parse_args()
 
+args.device = 0
+args.out_dir = '/mnt/infonas/blossom/pbansal/dump'
 device = torch.device('cuda:%d'%args.device)
-batch_size = 48
-lr = 1e-4
-
-mse_loss = torch.nn.MSELoss()
+batch_size = 64
+lr = 1e-3
 
 
-train_set = CopulaDataset_('dataset/sanity_complete.npy','dataset/sanity_train_examples.npy',k=4)
-val_set3 = ValidationCopulaDataset_('dataset/sanity_complete.npy','dataset/sanity_test_examples.npy')
+train_set = CopulaDataset_('dataset/sanity_complete.npy','dataset/sanity_train_examples.npy',k=3)
+val_set3 = ValidationCopulaDataset_('dataset/sanity_complete.npy','dataset/sanity_test_examples.npy',rank=4)
 
 train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = copula_collate)
 val_loader3 = torch.utils.data.DataLoader(val_set3,batch_size = batch_size,drop_last = False,shuffle=True)
@@ -53,7 +53,7 @@ for epoch in range(start_epoch,max_epoch):
         writer.add_scalar('training/time_series_loss',loss,iteration)
 
         #print (iteration,float(loss.data.cpu().numpy()))
-
+    
     torch.save(model.state_dict(), os.path.join(args.out_dir,'checkpoint_%d'%epoch))
     if ((epoch+1) % 1 == 0):
         loss_ = 0

@@ -143,7 +143,12 @@ class Proposal1Dataset_(torch.utils.data.Dataset):
         out_right = (out_right-mean)/std
         out_ = (out_-mean)/std
         
-        return out_left,out_right,out_,self.residuals[time_,:,prod_],self.residuals[time_,shop_,:],time_,shop_,prod_
+        #return out_left,out_right,out_,self.residuals[time_,:,prod_],self.residuals[time_,shop_,:],time_,shop_,prod_
+        shop_context = self.feats[time_,:,prod_]
+        prod_context = self.feats[time_,shop_,:]
+        shop_context = (shop_context - np.mean(shop_context))/np.std(shop_context)
+        prod_context = (prod_context - np.mean(prod_context))/np.std(prod_context)
+        return out_left,out_right,out_,shop_context,prod_context,time_,shop_,prod_
 
     def update_residuals (self,model,loader,device):
         with torch.no_grad() :
