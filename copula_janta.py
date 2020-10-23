@@ -24,8 +24,8 @@ lr = 1e-3
 
 mse_loss = torch.nn.MSELoss()
 
-train_set = CopulaDataset_('dataset/jantahack_complete.npy','dataset/jantahack_train_examples.npy')
-val_set3 = ValidationCopulaDataset_('dataset/jantahack_complete.npy','dataset/jantahack_test_examples.npy')
+train_set = CopulaDataset1D_('dataset/1djantahack_complete.npy','dataset/1djantahack_train_examples.npy')
+val_set3 = ValidationCopulaDataset1D_('dataset/1djantahack_complete.npy','dataset/1djantahack_test_examples.npy')
 
 train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = copula_collate)
 val_loader3 = torch.utils.data.DataLoader(val_set3,batch_size = batch_size,drop_last = False,shuffle=True)
@@ -61,10 +61,14 @@ for epoch in range(start_epoch,max_epoch):
     torch.save(model.state_dict(), os.path.join(args.out_dir,'checkpoint_%d'%epoch))
     if ((epoch+1) % 10 == 0):
         loss_ = 0
+        val_set3.predicted_values = np.zeros(val_set3.predicted_values.shape)
         with torch.no_grad() :
             val_set3.fill(model)
-            for i,err in enumerate(val_loader3):
+            for i,(err,mean,time,index) in enumerate(val_loader3):
                 loss_ += err.data.sum()
+                for i in range(err.shape[0]):
+                    val_set3.predicted_values[time[i]][index[i]] = mean[i]
         loss_ = loss_/int(len(val_set3))
+        loss = val_set3.mse_loss()
         writer.add_scalar('validation/time_series_loss',loss_,iteration)
-
+        writer.add_scalar('validation/mse_loss',loss,iteration)

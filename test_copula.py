@@ -24,10 +24,9 @@ lr = 1e-3
 
 mse_loss = torch.nn.MSELoss()
 
-
-val_set3 = ValidationCopulaDataset_('dataset/jantahack_complete.npy','dataset/jantahack_test_examples.npy')
-
+val_set3 = ValidationCopulaDataset1D_('dataset/1djantahack_complete.npy','dataset/1djantahack_test_examples.npy')
 val_loader3 = torch.utils.data.DataLoader(val_set3,batch_size = batch_size,drop_last = False,shuffle=True)
+
 
 model = CopulaModel().to(device)
 optim = torch.optim.Adam(model.parameters(),lr=lr)
@@ -41,9 +40,13 @@ for epoch in range(20):
     model_dict.update(pretrained_dict) 
     model.load_state_dict(model_dict)
     loss_ = 0
+    val_set3.predicted_values = np.zeros(val_set3.predicted_values.shape)
     with torch.no_grad() :
         val_set3.fill(model)
-        for i,err in enumerate(val_loader3):
+        for i,(err,mean,time,index) in enumerate(val_loader3):
             loss_ += err.data.sum()
+            for i in range(err.shape[0]):
+                val_set3.predicted_values[time[i]][index[i]] = mean[i]
     loss_ = loss_/int(len(val_set3))
-    print (loss_)
+    loss = val_set3.mse_loss()
+    print ("MSE Loss is %f"%loss)

@@ -19,22 +19,18 @@ parser.add_argument('-e', '--start-epoch', type=int,help='checkpoint')
 args = parser.parse_args()
 
 device = torch.device('cuda:%d'%args.device)
-batch_size = 128
+batch_size = 64
 lr = 1e-4
 
 mse_loss = torch.nn.MSELoss()
 
-
-# train_set = TimeSeriesDataset_('dataset/nyc_taxi_unnorm_numpy.npy','dataset/nyc_taxi_train_non_zero_examples.npy')
-# val_set3 = TimeSeriesDataset_('dataset/nyc_taxi_unnorm_numpy.npy','dataset/nyc_taxi_test_non_zero_examples.npy')
-train_set = TimeSeriesDataset_('dataset/jantahack_noshift_numpy_complete.npy','dataset/jantahack_train_examples.npy')
-val_set3 = TimeSeriesDataset_('dataset/jantahack_noshift_numpy_complete.npy','dataset/jantahack_test_examples.npy')
-
+train_set = TimeSeriesDataset_('dataset/2djantahack_complete.npy','dataset/2djantahack_train_examples.npy')
+val_set3 = TimeSeriesDataset_('dataset/2djantahack_complete.npy','dataset/2djantahack_test_examples.npy')
 
 train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = time_series_collate)
 val_loader3 = torch.utils.data.DataLoader(val_set3,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = time_series_collate)
 
-model = TimeSeries().to(device)
+model = TimeSeries(hidden_dim=128).to(device)
 optim = torch.optim.Adam(model.parameters(),lr=lr)
 
 writer = SummaryWriter(os.path.join('runs',args.log_file))
@@ -49,7 +45,7 @@ if (args.warm_start):
 
 for epoch in range(start_epoch,max_epoch):
     print ("Starting Epoch : %d"%epoch)
-    for x_right,x_left,y in train_loader :
+    for x_right,x_left,y,_ in train_loader :
         y_pred,var = model(x_right.to(device),x_left.to(device))
         y = y.to(device)
         loss_ = (((y_pred-y)**2)/torch.exp(var) + var).mean()
@@ -58,13 +54,20 @@ for epoch in range(start_epoch,max_epoch):
         optim.step()
         iteration += 1
         writer.add_scalar('training/loss',loss_,iteration)
-    if (epoch % 2 == 0):
+        
+    if (epoch % 1 == 0):
         torch.save(model.state_dict(), os.path.join(args.out_dir,'checkpoint_%d'%epoch))
         loss_ = 0
-        for x_right,x_left,y in val_loader3 :
-            with torch.no_grad() :
+        with torch.no_grad() :
+            for x_right,x_left,y,index_info in val_loader3 :
                 y_pred,var = model(x_right.to(device),x_left.to(device))
                 y = y.to(device)
                 loss_ += (((y_pred-y)**2)/torch.exp(var) + var).mean().data*x_right.shape[0]
+                y_pred = y_pred.squeeze().data.cpu().numpy()
+                for i in range(x_right.shape[0]):
+                    val_set3.predicted_values[index_info['time'][i]][index_info['index1'][i]][index_info['index2'][i]] = y_pred[i]
+                    
         loss_ = loss_/int(len(val_set3))
+        loss = val_set3.mse_loss()
         writer.add_scalar('validation/truly_inliers_loss',loss_,iteration)
+        writer.add_scalar('validation/mse_loss',loss,iteration)
