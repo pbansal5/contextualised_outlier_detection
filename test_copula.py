@@ -31,7 +31,7 @@ val_loader3 = torch.utils.data.DataLoader(val_set3,batch_size = batch_size,drop_
 model = CopulaModel().to(device)
 optim = torch.optim.Adam(model.parameters(),lr=lr)
 
-for epoch in range(20):
+for epoch in range(6):
     print ("Testing Epoch : %d"%epoch)
 
     model_dict = model.state_dict()

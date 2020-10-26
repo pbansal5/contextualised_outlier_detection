@@ -20,14 +20,14 @@ parser.add_argument('-n', '--exp-name', type=str,help='std')
 args = parser.parse_args()
 
 exp_name = args.exp_name
-log_file = 'our_sanity_%s_lr1e-4'%exp_name
+log_file = 'our_sanity_%s'%exp_name
 data_file = 'dataset/1d_sanity_complete_%s.npy'%exp_name
 
 args.device = 0
 args.out_dir = '/mnt/infonas/blossom/pbansal/dump'
 device = torch.device('cuda:%d'%args.device)
-batch_size = 64
-lr = 1e-4
+batch_size = 48
+lr = 1e-3
 
 model = Proposal1Model1D(size1=9,hidden_dim=4,embedding_size=4).to(device)
 optim = torch.optim.Adam(model.parameters(),lr=lr)
@@ -42,7 +42,7 @@ update_loader = torch.utils.data.DataLoader(update_set,batch_size = batch_size,d
 
 writer = SummaryWriter(os.path.join('runs',log_file))
 if (exp_name == 'special'):
-    max_epoch = 1500
+    max_epoch = 500
 else :
     max_epoch = 100
 iteration = 0

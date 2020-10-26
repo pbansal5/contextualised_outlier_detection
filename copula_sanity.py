@@ -28,7 +28,7 @@ data_file = 'dataset/1d_sanity_complete_%s.npy'%exp_name
 args.device = 0
 args.out_dir = '/mnt/infonas/blossom/pbansal/dump'
 device = torch.device('cuda:%d'%args.device)
-batch_size = 32
+batch_size = 48
 lr = 1e-3
 
 
@@ -42,7 +42,7 @@ model = CopulaModel(hidden_dim=4,rank=4).to(device)
 optim = torch.optim.Adam(model.parameters(),lr=lr)
 writer = SummaryWriter(os.path.join('runs',log_file))
 
-max_epoch = 100
+max_epoch = 200
 iteration = 0
 start_epoch = 0
 best_loss = 1000
