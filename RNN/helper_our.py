@@ -71,6 +71,35 @@ class Proposal1Model(nn.Module):
         err2 = (((y.unsqueeze(1)-mean_outlier)**2/torch.exp(std_outlier)) + std_outlier).mean()
 
         return err1,err2,mean_outlier
+
+    def detached_forward(self, x_left,x_right,y,context_info,use_outlier=True):
+        out_left,_ = self.gru_left(x_left.transpose(0,1).unsqueeze(axis=2))
+        out_right,_ = self.gru_right(x_right.transpose(0,1).unsqueeze(axis=2))
+        out_left = out_left[-1,:,:]
+        out_right = out_right[-1,:,:]
+        temp = torch.cat([out_left,out_right],axis=1)
+        mean_time_series = self.mean(temp)
+        std_time_series = self.std(temp)
+        
+        index1 = context_info['index1']
+        index2 = context_info['index2']
+        y1_context = context_info['y1_context']
+        y2_context = context_info['y2_context']
+
+        feats = torch.cat([self.compute_feats(y1_context.to(x_left.device),y2_context.to(x_left.device),index1,index2).to(x_left.device),mean_time_series.detach().requires_grad_(True),std_time_series.detach().requires_grad_(True)],axis=1)
+        feats = self.outlier_layer1(feats).clamp(min=0)
+        mean_outlier = self.mean_outlier_layer(feats)
+        std_outlier = self.std_outlier_layer(feats)
+        #residual2 = (0-mean_outlier)/torch.exp(std_outlier/2)
+        
+        err1 = (((y.unsqueeze(1)-mean_time_series)**2/torch.exp(std_time_series)) + std_time_series).mean()
+        err2 = (((y.unsqueeze(1)-mean_outlier)**2/torch.exp(std_outlier)) + std_outlier).mean()
+
+        if use_outlier:
+            return err1,err2,mean_outlier
+        else:
+            return err1,err2,mean_time_series
+
     
     def compute_residuals(self, x_left,x_right,y):
         out_left,_ = self.gru_left(x_left.transpose(0,1).unsqueeze(axis=2))
@@ -197,6 +226,33 @@ class Proposal1Model1D(nn.Module):
 
         return err1,err2,mean_outlier
     
+    
+    def detached_forward(self, x_left,x_right,y,context_info,use_outlier=True):
+        out_left,_ = self.gru_left(x_left.transpose(0,1).unsqueeze(axis=2))
+        out_right,_ = self.gru_right(x_right.transpose(0,1).unsqueeze(axis=2))
+        out_left = out_left[-1,:,:]
+        out_right = out_right[-1,:,:]
+        temp = torch.cat([out_left,out_right],axis=1)
+        mean_time_series = self.mean(temp)
+        std_time_series = self.std(temp)
+        
+        index1 = context_info['index1']
+        y1_context = context_info['y1_context']
+
+        feats = torch.cat([self.compute_feats(y1_context.to(x_left.device),index1).to(x_left.device),mean_time_series.detach().requires_grad_(True),std_time_series.detach().requires_grad_(True)],axis=1)
+        feats = self.outlier_layer1(feats).clamp(min=0)
+        mean_outlier = self.mean_outlier_layer(feats)
+        std_outlier = self.std_outlier_layer(feats)
+        #residual2 = (0-mean_outlier)/torch.exp(std_outlier/2)
+        
+        err1 = (((y.unsqueeze(1)-mean_time_series)**2/torch.exp(std_time_series)) + std_time_series).mean()
+        err2 = (((y.unsqueeze(1)-mean_outlier)**2/torch.exp(std_outlier)) + std_outlier).mean()
+
+        if use_outlier:
+            return err1,err2,mean_outlier
+        else:
+            return err1,err2,mean_time_series
+
     def compute_residuals(self, x_left,x_right,y):
         out_left,_ = self.gru_left(x_left.transpose(0,1).unsqueeze(axis=2))
         out_right,_ = self.gru_right(x_right.transpose(0,1).unsqueeze(axis=2))
