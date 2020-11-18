@@ -7,8 +7,8 @@ import os,copy
 import matplotlib.pyplot as plt
 import _pickle as cPickle
 from transformer_imputation_helper import *
-cudnn.benchmark = False
-cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
 torch.manual_seed(1)
 torch.cuda.manual_seed(1)
 
@@ -23,8 +23,7 @@ parser.add_argument('-e', '--start-epoch', type=int,help='checkpoint')
 args = parser.parse_args()
 
 
-#log_file = 'transformer_janta'
-log_file = 'transformer_janta'
+log_file = 'transformer_taxi'
 
 args.device = 0
 args.out_dir = '/mnt/infonas/blossom/pbansal/dump'
@@ -32,15 +31,15 @@ device = torch.device('cuda:%d'%args.device)
 batch_size = 64
 lr = 1e-4
 
-train_set = TransformerDataset('../dataset/2djantahack_complete.npy','../dataset/2djantahack_train_examples.npy')
-val_set = TransformerDataset('../dataset/2djantahack_complete.npy','../dataset/2djantahack_test_examples.npy')
-update_set = TransformerDataset('../dataset/2djantahack_complete.npy','../dataset/2djantahack_all_examples.npy')
+train_set = TransformerDataset('../dataset/2dnyc_taxi_complete.npy','../dataset/2dnyc_taxi_train_examples.npy')
+val_set = TransformerDataset('../dataset/2dnyc_taxi_complete.npy','../dataset/2dnyc_taxi_test_examples.npy')
+update_set = TransformerDataset('../dataset/2dnyc_taxi_complete.npy','../dataset/2dnyc_taxi_all_examples.npy')
 
 train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = transformer_collate)
 val_loader = torch.utils.data.DataLoader(val_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = transformer_collate)
 update_loader = torch.utils.data.DataLoader(update_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = transformer_collate)
 
-model = OurModel(sizes=[76,28],ninp=32,embedding_size=16,nhid=32,nlayers=4,nhead=2).to(device)
+model = OurModel(sizes=[266,266],ninp=32,embedding_size=32,nhid=32,nlayers=4,nhead=2).to(device)
 
 best_state_dict = model.state_dict()
 best_loss = float('inf')
