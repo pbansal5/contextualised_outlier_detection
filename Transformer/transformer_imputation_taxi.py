@@ -23,23 +23,27 @@ parser.add_argument('-e', '--start-epoch', type=int,help='checkpoint')
 args = parser.parse_args()
 
 
-log_file = 'transformer_taxi'
+log_file = 'transformer_taxi_plot_var_otherdata_mae_nll'
 
 args.device = 0
 args.out_dir = '/mnt/infonas/blossom/pbansal/dump'
 device = torch.device('cuda:%d'%args.device)
 batch_size = 64
-lr = 1e-4
+lr = 1e-3
 
-train_set = TransformerDataset('../dataset/2dnyc_taxi_complete.npy','../dataset/2dnyc_taxi_train_examples.npy')
-val_set = TransformerDataset('../dataset/2dnyc_taxi_complete.npy','../dataset/2dnyc_taxi_test_examples.npy')
-update_set = TransformerDataset('../dataset/2dnyc_taxi_complete.npy','../dataset/2dnyc_taxi_all_examples.npy')
+train_set = TransformerDataset('../dataset/2dnyc_other_taxi_complete.npy','../dataset/2dnyc_other_taxi_train_examples.npy')
+val_set = TransformerDataset('../dataset/2dnyc_other_taxi_complete.npy','../dataset/2dnyc_other_taxi_test_examples.npy')
+update_set = TransformerDataset('../dataset/2dnyc_other_taxi_complete.npy','../dataset/2dnyc_other_taxi_all_examples.npy')
+
+# train_set = TransformerDataset('../dataset/2dnyc_taxi_complete.npy','../dataset/2dnyc_taxi_train_examples.npy',unnormalised=True)
+# val_set = TransformerDataset('../dataset/2dnyc_taxi_complete.npy','../dataset/2dnyc_taxi_test_examples.npy',unnormalised=True)
+# update_set = TransformerDataset('../dataset/2dnyc_taxi_complete.npy','../dataset/2dnyc_taxi_all_examples.npy',unnormalised=True)
 
 train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = transformer_collate)
 val_loader = torch.utils.data.DataLoader(val_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = transformer_collate)
 update_loader = torch.utils.data.DataLoader(update_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = transformer_collate)
 
-model = OurModel(sizes=[266,266],ninp=32,embedding_size=32,nhid=32,nlayers=4,nhead=2).to(device)
+model = OurModel(sizes=[266,266],ninp=256,embedding_size=32,nhid=128,nlayers=4,nhead=4).to(device)
 
 best_state_dict = model.state_dict()
 best_loss = float('inf')
@@ -80,6 +84,7 @@ for epoch in range(start_epoch,max_epoch):
         loss_mre_num,loss_mre_den,loss_crps = 0,0,0
         with torch.no_grad():
             for inp_,context_info in val_loader :
+                #loss = model.second_moment_validate(inp_.to(device),context_info)
                 loss = model.validate(inp_.to(device),context_info)
                 loss_mre_num += loss['mae']*inp_.shape[0]
                 loss_mre_den += loss['sum']*inp_.shape[0]
@@ -95,13 +100,16 @@ for epoch in range(start_epoch,max_epoch):
     print ('done validation')
     
     for inp_,context_info in train_loader :
-        loss = model(inp_.to(device),context_info)
+        #loss = model.second_moment_forward(inp_.to(device),context_info)
+        loss = model.forward(inp_.to(device),context_info)
         optim.zero_grad()
-        loss['nll'].backward()
+        (loss['nll']+loss['mae']).backward()
+        #loss['nll'].backward()
         optim.step()
         iteration += 1
         writer.add_scalar('training/nll_loss',loss['nll'],iteration)
         writer.add_scalar('training/mae_loss',loss['mae'],iteration)
+        writer.add_scalar('training/variance',loss['var'],iteration)
 
 
 

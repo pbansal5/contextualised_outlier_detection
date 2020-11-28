@@ -1,0 +1,144 @@
+import torch
+import numpy as np
+import argparse
+import torch.nn as nn
+from torch.utils.tensorboard import SummaryWriter
+import os
+import matplotlib.pyplot as plt
+import _pickle as cPickle
+from scipy.stats import norm
+import random
+import math,copy
+import torch.nn.functional as F
+import properscoring as ps
+
+class OurModel(nn.Module):
+    def __init__(self,sizes,embedding_size=16):
+        super(OurModel, self).__init__()
+        hidden_size = 256
+        output_size = 256
+        self.embeddings = []
+        self.sizes=sizes
+        for x in sizes:
+            self.embeddings.append(nn.Embedding(x, embedding_size, max_norm=1))
+        self.transformer_embeddings = nn.ModuleList(self.embeddings)
+        self.key_network = nn.Linear(3*embedding_size+1,output_size)
+        self.value_network = nn.Linear(3*embedding_size+1,output_size)
+        self.query_network = nn.Linear(3*embedding_size,output_size)
+        # self.key_network = nn.Sequential(nn.Linear(3*embedding_size+1,hidden_size),nn.ReLU(),nn.Linear(hidden_size,output_size))
+        # self.value_network = nn.Sequential(nn.Linear(3*embedding_size+1,hidden_size),nn.ReLU(),nn.Linear(hidden_size,output_size))
+        # self.query_network = nn.Sequential(nn.Linear(3*embedding_size,hidden_size),nn.ReLU(),nn.Linear(hidden_size,output_size))
+        self.mean_network = nn.Sequential(nn.Linear(output_size,hidden_size),nn.ReLU(),nn.Linear(hidden_size,1))
+        self.std_network = nn.Sequential(nn.Linear(output_size,hidden_size),nn.ReLU(),nn.Linear(hidden_size,1))
+        self.attention = torch.nn.MultiheadAttention(256,4)
+        self.means = None
+        self.stds = None
+        self.normalised = None
+        
+    def core(self,context_info):
+        output = self.normalised[context_info['time'],context_info['index'][:,0],context_info['index'][:,1]]
+        time_ = self.normalised[:,context_info['index'][:,0],context_info['index'][:,1]].transpose(0,1)
+        shop_ = self.normalised[context_info['time'],:,context_info['index'][:,1]]
+        prod_ = self.normalised[context_info['time'],context_info['index'][:,0],:]
+        # time_[np.arange(context_info['time'].size()),context_info['time']] = 0
+        # shop_[np.arange(context_info['time'].size()),context_info['time']] = 0
+        # prod_[np.arange(context_info['time'].size()),context_info['time']] = 0
+
+                
+        time_embeddings = self.transformer_embeddings[0].weight[context_info['time']].unsqueeze(1)
+        shop_embeddings = self.transformer_embeddings[1].weight[context_info['index'][:,0]].unsqueeze(1)
+        prod_embeddings = self.transformer_embeddings[2].weight[context_info['index'][:,1]].unsqueeze(1)
+
+        time_ = torch.cat([time_.unsqueeze(2),self.transformer_embeddings[0].weight.unsqueeze(0).repeat(time_.shape[0],1,1),shop_embeddings.repeat(1,time_.shape[1],1),prod_embeddings.repeat(1,time_.shape[1],1)],dim=2)
+        shop_ = torch.cat([shop_.unsqueeze(2),time_embeddings.repeat(1,shop_.shape[1],1),self.transformer_embeddings[1].weight.unsqueeze(0).repeat(shop_.shape[0],1,1),prod_embeddings.repeat(1,shop_.shape[1],1)],dim=2)
+        prod_ = torch.cat([prod_.unsqueeze(2),time_embeddings.repeat(1,prod_.shape[1],1),shop_embeddings.repeat(1,prod_.shape[1],1),self.transformer_embeddings[2].weight.unsqueeze(0).repeat(prod_.shape[0],1,1)],dim=2)
+        
+        # shop_ = torch.cat([shop_.unsqueeze(2),self.transformer_embeddings[1].weight.unsqueeze(0).repeat(shop_.shape[0],1,1)],dim=2)
+        # prod_ = torch.cat([prod_.unsqueeze(2),self.transformer_embeddings[2].weight.unsqueeze(0).repeat(shop_.shape[0],1,1)],dim=2)
+        # time_ = torch.cat([time_.unsqueeze(2),self.transformer_embeddings[0].weight.unsqueeze(0).repeat(shop_.shape[0],1,1)],dim=2)
+
+        shop_new = []
+        for i in range(shop_.shape[0]):
+            shop_new.append(torch.cat([shop_[i,:context_info['index'][i,0],:],shop_[i,context_info['index'][i,0]+1:,:]],dim=0))
+        shop_ = torch.stack(shop_new,dim=0)
+
+        prod_new = []
+        for i in range(prod_.shape[0]):
+            prod_new.append(torch.cat([prod_[i,:context_info['index'][i,1],:],prod_[i,context_info['index'][i,1]+1:,:]],dim=0))
+        prod_ = torch.stack(prod_new,dim=0)
+        
+        time_new = []
+        for i in range(shop_.shape[0]):
+            time_new.append(torch.cat([time_[i,:context_info['time'][i],:],time_[i,context_info['time'][i]+1:,:]],dim=0))
+        time_ = torch.stack(time_new,dim=0)
+
+        query = torch.cat([self.transformer_embeddings[0].weight[context_info['time']],self.transformer_embeddings[1].weight[context_info['index'][:,0]],self.transformer_embeddings[2].weight[context_info['index'][:,1]]],dim=1)
+        query = self.query_network(query).unsqueeze(0)
+        keys = torch.cat([self.key_network(time_),self.key_network(shop_),self.key_network(prod_)],dim=1)
+        values = torch.cat([self.value_network(time_),self.value_network(shop_),self.value_network(prod_)],dim=1)
+        output_rep,_ = self.attention(query,keys.transpose(0,1),values.transpose(0,1))
+        mean = self.mean_network(output_rep.squeeze()).squeeze()
+        variance = self.std_network(output_rep.squeeze()).squeeze()
+        
+        return output,mean,variance
+
+    def forward (self,context_info):
+        output,mean,std = self.core(context_info)
+        return {'mae':self.mae_loss(mean,output,context_info['std']),'nll':self.nll_loss(mean,std,output)}
+    
+    def validate(self,context_info):
+        output,mean,std = self.core(context_info)
+        return {'mae':self.mae_loss(mean,output,context_info['std']),'nll':self.nll_loss(mean,std,output),'sum':self.sum_(output,context_info['mean'],context_info['std']),
+                'crps':self.crps_loss(output,mean,std,context_info['std'])}
+
+    def nll_loss(self,y_pred,sigma_pred,y):
+        err1 = (((y-y_pred)**2/torch.exp(sigma_pred)) + sigma_pred)
+        return err1.mean()
+
+    def sum_(self,y,mean,std):
+        temp = (y.cpu()*std+mean)
+        return temp.mean()
+    
+    def mae_loss(self,y,y_pred,std):
+        temp = torch.abs((y_pred-y)*std.cuda())
+        return temp.mean()
+
+    def crps_loss(self,x,mu_pred,sigma_pred,std):
+        mu_pred = mu_pred.cpu()*std
+        x = x.cpu()*std
+        sigma_pred = torch.exp(sigma_pred.cpu()/2)*std
+        temp = [ps.crps_gaussian(x_, mu=mu_, sig=sigma_) for x_,mu_,sigma_ in zip(x,mu_pred,sigma_pred)]
+        return sum(temp)/len(temp)
+
+
+
+class TransformerDataset(torch.utils.data.Dataset):
+    def __init__(self,feats_file,examples_file,time_context=None,mask=True):
+        print ('loading dataset')
+        self.feats = np.load(feats_file).astype(np.float32)
+        self.residuals = np.zeros(self.feats.shape)
+        self.num_dim = len(self.feats.shape)
+        self.examples_file = np.load(examples_file).astype(np.int)
+        self.time_context = time_context
+        self.mask = mask
+        
+    def __getitem__(self,index):
+        this_example = self.examples_file[index]
+        time_ = this_example[0]
+        mean = self.feats[time_].mean()
+        std = self.feats[time_].std()
+        #hardcoded for now
+        if (self.num_dim == 3):
+            return time_,[this_example[1],this_example[2]],mean,std
+        # elif (self.num_dim == 2):
+        #     return torch.FloatTensor(series),time_,[this_example[1]],mean[this_example[1]],std[this_example[1]]
+        else :
+            raise Exception
+    def __len__(self):
+        return self.examples_file.shape[0]
+
+
+def transformer_collate(batch):
+    (time_,index,mean,std) = zip(*batch)
+    return dict({'time':torch.LongTensor(list(time_))  ,'index':np.array(list(index)).astype(np.int),'mean':torch.FloatTensor(list(mean)),'std':torch.FloatTensor(list(std))})
+

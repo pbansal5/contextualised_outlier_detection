@@ -7,8 +7,8 @@ import os,copy
 import matplotlib.pyplot as plt
 import _pickle as cPickle
 from transformer_imputation_helper import *
-cudnn.benchmark = False
-cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
 torch.manual_seed(1)
 torch.cuda.manual_seed(1)
 
@@ -24,7 +24,7 @@ args = parser.parse_args()
 
 
 #log_file = 'transformer_janta'
-log_file = 'transformer_janta'
+log_file = 'transformer_janta_longer'
 
 args.device = 0
 args.out_dir = '/mnt/infonas/blossom/pbansal/dump'
@@ -51,17 +51,20 @@ print ("Starting Stage 1")
 
 optim = torch.optim.Adam(model.parameters(),lr=lr)
 
-max_epoch = 100
-switch_epoch = 40
+max_epoch = 200
+switch_epoch = 100
 iteration = 0
 start_epoch = 0
 
 for epoch in range(start_epoch,max_epoch):
     print ("Starting Epoch : %d"%epoch)
 
+    if (epoch == 40):
+        torch.save(best_state_dict,'best_janta_40epochs')
     if (epoch == switch_epoch):
         print ("Starting Stage 2")
         model.load_state_dict(best_state_dict)
+        torch.save(best_state_dict,'best_janta_100epochs')
         residuals = torch.zeros(update_set.feats.shape).to(device)
         means = torch.zeros(update_set.feats.shape).to(device)
         stds = torch.zeros(update_set.feats.shape).to(device)

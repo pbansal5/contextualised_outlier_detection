@@ -45,21 +45,30 @@ class TransformerConvModel(nn.Module):
         self.mse_loss = nn.MSELoss()
         self.numerator = 0
         self.denominator = 0
-
+        # self.init_weights() # changed
+        
     def reset(self):
         self.numerator = 0
         self.denominator = 0
         
+        
+    def init_weights(self):
+        initrange = 0.1
+        self.decoder_mean.bias.data.zero_()
+        self.decoder_mean.weight.data.uniform_(-initrange, initrange)
+        self.decoder_std.bias.data.zero_()
+        self.decoder_std.weight.data.uniform_(-initrange, initrange)
+
     def forward(self, src,time):
         src = self.encoder(src).transpose(1,2)
         src = self.pos_encoder(src)
-        output = self.transformer_encoder(src)
+        output = self.transformer_encoder(src).clamp(min=0)
         output_mean = self.decoder_mean(output).squeeze()[np.arange(len(time)),time]
         output_std = self.decoder_std(output).squeeze()[np.arange(len(time)),time]
         return output_mean,output_std
 
 class OurModel(nn.Module):
-    def __init__(self,sizes,embedding_size=16,ninp=64,nlayers=4,nhid=32,nhead=2,kernel_size=9):
+    def __init__(self,sizes,embedding_size=16,ninp=64,nlayers=4,nhid=32,nhead=2,kernel_size=9,other_residuals=False):
         super(OurModel, self).__init__()
         hidden_dim = 64
         self.k = 20
@@ -70,13 +79,19 @@ class OurModel(nn.Module):
         self.transformer_embeddings = nn.ModuleList(self.embeddings)
         self.outlier_embeddings = copy.deepcopy(self.transformer_embeddings)
         self.transformer = TransformerConvModel(num_feats=embedding_size*len(sizes)+1,nlayers=nlayers,nhid=nhid,ninp=ninp,kernel_size=kernel_size,nhead=nhead)
-        self.outlier_layer1 = nn.Linear(3*len(sizes)+2,hidden_dim)
+        if (other_residuals):
+            self.outlier_layer1 = nn.Linear(6*len(sizes)+2,hidden_dim)
+        else :
+            self.outlier_layer1 = nn.Linear(3*len(sizes)+2,hidden_dim)
         self.mean_outlier_layer = nn.Linear(hidden_dim,1)
         self.std_outlier_layer = nn.Linear(hidden_dim,1)
         self.stage2 = False
         self.means = None
         self.stds = None
         self.residuals = None
+        self.other_residuals = None
+        #self.softplus = torch.nn.Softplus(beta=0.1)
+        self.sigmoid = torch.nn.Sigmoid()
         
     def compute_feats(self,y_context,indices):
         similarities = [torch.cdist(y.weight[x].unsqueeze(0),y.weight.unsqueeze(0),p=2).squeeze()+1e-3 for x,y in zip(indices,self.outlier_embeddings)]
@@ -97,6 +112,8 @@ class OurModel(nn.Module):
 
         if (self.stage2 == False):
             series[np.arange(series.shape[0]),context_info['time']] = 0
+            series[np.arange(series.shape[0]),context_info['time']] = series.mean(dim=1)
+            
             embeddings = [series.unsqueeze(2)]
             for i in range(context_info['index'].shape[1]):
                 temp = self.transformer_embeddings[i].weight[context_info['index'][:,i]]
@@ -110,17 +127,32 @@ class OurModel(nn.Module):
                 mean = self.means[context_info['time'],context_info['index'][:,0],context_info['index'][:,1]]
                 std = self.stds[context_info['time'],context_info['index'][:,0],context_info['index'][:,1]]
                 residuals = [self.residuals[context_info['time'],:,context_info['index'][:,1]],self.residuals[context_info['time'],context_info['index'][:,0],:]]
-                
+
             elif (context_info['index'].shape[1] == 1):
                 mean = self.means[context_info['time'],context_info['index'][:,0]]
                 std = self.stds[context_info['time'],context_info['index'][:,0]]
                 residuals = [self.residuals[context_info['time'],:]]
             else :
                 raise Exception
-            
-            temp = self.compute_feats(residuals,context_info['index'].transpose())
-            feats = torch.cat([temp,mean.unsqueeze(1),std.unsqueeze(1)],axis=1)
-            
+
+            if (self.other_residuals != None):
+                if (context_info['index'].shape[1] == 2):
+                    mean = self.means[context_info['time'],context_info['index'][:,0],context_info['index'][:,1]]
+                    std = self.stds[context_info['time'],context_info['index'][:,0],context_info['index'][:,1]]
+                    other_residuals = [self.other_residuals[context_info['time'],:,context_info['index'][:,1]],self.other_residuals[context_info['time'],context_info['index'][:,0],:]]
+
+                elif (context_info['index'].shape[1] == 1):
+                    mean = self.means[context_info['time'],context_info['index'][:,0]]
+                    std = self.stds[context_info['time'],context_info['index'][:,0]]
+                    other_residuals = [self.other_residuals[context_info['time'],:]]
+                else :
+                    raise Exception
+                temp = self.compute_feats(residuals,context_info['index'].transpose())
+                temp1 = self.compute_feats(other_residuals,context_info['index'].transpose())
+                feats = torch.cat([temp,temp1,mean.unsqueeze(1),std.unsqueeze(1)],axis=1)
+            else :
+                temp = self.compute_feats(residuals,context_info['index'].transpose())
+                feats = torch.cat([temp,mean.unsqueeze(1),std.unsqueeze(1)],axis=1)
             feats = self.outlier_layer1(feats).clamp(min=0)
             mean = self.mean_outlier_layer(feats).squeeze()
             std = self.std_outlier_layer(feats).squeeze()
@@ -128,12 +160,21 @@ class OurModel(nn.Module):
 
     def forward (self,series,context_info):
         output,mean,std = self.core(series,context_info)
-        return {'mae':self.mae_loss(mean,output,context_info['std']),'nll':self.nll_loss(mean,std,output)}
+        return {'mae':self.mae_loss(mean,output,context_info['std']),'nll':self.nll_loss(mean,std,output),'var':std.mean()}
     
     def validate(self,series,context_info):
         output,mean,std = self.core(series,context_info)
         return {'mae':self.mae_loss(mean,output,context_info['std']),'nll':self.nll_loss(mean,std,output),'sum':self.sum_(output,context_info['mean'],context_info['std']),
-                'crps':self.crps_loss(output,mean,std,context_info['mean'],context_info['std'])}
+                'crps':self.crps_loss(output,mean,std,context_info['mean'],context_info['std']),'var':std.mean()}
+
+    def second_moment_forward (self,series,context_info):
+        output,mean,std = self.core(series,context_info)
+        return {'mae':self.mae_loss(mean,output,context_info['std']),'nll':self.second_moment_nll_loss(mean,std,output),'var':self.sigmoid(std).mean()}
+    
+    def second_moment_validate(self,series,context_info):
+        output,mean,std = self.core(series,context_info)
+        return {'mae':self.mae_loss(mean,output,context_info['std']),'nll':self.second_moment_nll_loss(mean,std,output),'sum':self.sum_(output,context_info['mean'],context_info['std']),
+                'crps':self.second_moment_crps_loss(output,mean,std,context_info['mean'],context_info['std']),'var':self.sigmoid(std).mean()}
 
     def switch(self):
         self.stage2 = True
@@ -145,6 +186,11 @@ class OurModel(nn.Module):
         err1 = (((y-y_pred)**2/torch.exp(sigma_pred)) + sigma_pred)
         return err1.mean()
 
+    def second_moment_nll_loss(self,y_pred,sigma_pred,y):
+        sigma_pred = self.sigmoid(sigma_pred)
+        err1 = (((y-y_pred)**2/sigma_pred) + torch.log(sigma_pred))
+        return err1.mean()
+
     def sum_(self,y,mean,std):
         temp = (y.cpu()*std+mean)
         return temp.mean()
@@ -152,6 +198,15 @@ class OurModel(nn.Module):
     def mae_loss(self,y,y_pred,std):
         temp = torch.abs((y_pred-y)*std.cuda())
         return temp.mean()
+
+    def second_moment_crps_loss(self,x,mu_pred,sigma_pred,mean,std):
+        sigma_pred = self.sigmoid(sigma_pred)
+        mu_pred = mu_pred.cpu()*std + mean
+        x = x.cpu()*std + mean
+        sigma_pred = torch.sqrt(sigma_pred).cpu()*std
+        temp = [ps.crps_gaussian(x_, mu=mu_, sig=sigma_) for x_,mu_,sigma_ in zip(x,mu_pred,sigma_pred)]
+        return sum(temp)/len(temp)
+
 
     def crps_loss(self,x,mu_pred,sigma_pred,mean,std):
         mu_pred = mu_pred.cpu()*std + mean
@@ -161,8 +216,9 @@ class OurModel(nn.Module):
         return sum(temp)/len(temp)
 
 
+
 class TransformerDataset(torch.utils.data.Dataset):
-    def __init__(self,feats_file,examples_file,time_context=None,mask=True):
+    def __init__(self,feats_file,examples_file,time_context=None,mask=True,unnormalised=False):
         print ('loading dataset')
         self.feats = np.load(feats_file).astype(np.float32)
         self.residuals = np.zeros(self.feats.shape)
@@ -170,7 +226,7 @@ class TransformerDataset(torch.utils.data.Dataset):
         self.examples_file = np.load(examples_file).astype(np.int)
         self.time_context = time_context
         self.mask = mask
-        
+        self.unnormalised = unnormalised
     def __getitem__(self,index):
         this_example = self.examples_file[index]
         time_ = this_example[0]
@@ -186,7 +242,10 @@ class TransformerDataset(torch.utils.data.Dataset):
         temp = series[time_]
         series[time_] = 0
         mean = np.nanmean(series)
-        std = max(np.nanstd(series),1e-7)
+        std = max(np.nanstd(series),1e-1)
+        if (self.unnormalised == True):
+            mean = 0
+            std = 1
         series[time_] = temp
         series = (series-mean)/std
         series = np.nan_to_num(series)
