@@ -63,8 +63,8 @@ model.residuals = torch.from_numpy(residuals).to(device)
 for epoch in range(start_epoch,max_epoch):
     print ("Starting Epoch : %d"%epoch)
 
-    for inp_,context_info in train_loader :
-        loss = model(inp_.to(device),context_info)
+    for inp_,out_,mask,context_info in train_loader :
+        loss = model(inp_.to(device),out_.to(device),context_info)
         optim.zero_grad()
         #loss['nll'].backward()
         loss['mae'].backward()
@@ -77,8 +77,8 @@ for epoch in range(start_epoch,max_epoch):
     if (epoch % 1 == 0):
         loss_mre_num,loss_mre_den,loss_crps = 0,0,0
         with torch.no_grad():
-            for inp_,context_info in val_loader :
-                loss = model.validate(inp_.to(device),context_info)
+            for inp_,out_,mask,context_info in val_loader :
+                loss = model.validate(inp_.to(device),out_.to(device),context_info)
                 loss_mre_num += loss['mae']*inp_.shape[0]
                 loss_mre_den += loss['sum']*inp_.shape[0]
                 loss_crps += loss['crps']*inp_.shape[0]

@@ -33,8 +33,6 @@ lr = 1e-4
 
 train_set = TransformerDataset('../dataset/2djantahack_complete.npy','../dataset/2djantahack_train_examples.npy')
 val_set = TransformerDataset('../dataset/2djantahack_complete.npy','../dataset/2djantahack_test_examples.npy',mask=False)
-# train_set = TransformerDataset('../dataset/2d_block_jantahack_train.npy','../dataset/2d_block_jantahack_train_examples.npy')
-# val_set = ValidationTransformerDataset('../dataset/2d_block_jantahack_train.npy','../dataset/2d_block_jantahack_test.npy','../dataset/2d_block_jantahack_test_examples.npy')
 
 train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = transformer_collate)
 val_loader = torch.utils.data.DataLoader(val_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = transformer_collate)
@@ -54,20 +52,18 @@ max_epoch = 200
 switch_epoch = 100
 iteration = 0
 start_epoch = 0
-residuals = copy.deepcopy(train_set.feats)
+residuals = torch.from_numpy(train_set.feats).to(device)
 print (residuals.shape)
-residuals -= np.nanmean(residuals,axis=0)
-residuals /= np.maximum(np.nanstd(residuals,axis=0),1e-1)
-residuals = np.nan_to_num(residuals)
-model.residuals = torch.from_numpy(residuals).to(device)
+residuals -= residuals.mean(dim=0)
+residuals /= residuals.std(dim=0).clamp(min=1e-1)
+model.residuals = residuals
 
 for epoch in range(start_epoch,max_epoch):
     print ("Starting Epoch : %d"%epoch)
 
-    if (epoch == 40):
-        torch.save(best_state_dict,'best_janta_40epochs')
-    if (epoch == 100):
-        torch.save(best_state_dict,'best_janta_100epochs')
+    best_state_dict = torch.load('best_janta_40epochs')
+    model.load_state_dict(best_state_dict)
+        
     if (epoch % 1 == 0):
         loss_mre_num,loss_mre_den,loss_crps = 0,0,0
         with torch.no_grad():
@@ -76,10 +72,10 @@ for epoch in range(start_epoch,max_epoch):
                 loss_mre_num += loss['mae']*inp_.shape[0]
                 loss_mre_den += loss['sum']*inp_.shape[0]
                 loss_crps += loss['crps']*inp_.shape[0]
-            writer.add_scalar('validation/mre_loss',loss_mre_num/loss_mre_den,iteration)
-            writer.add_scalar('validation/mae_loss',loss_mre_num/len(val_set),iteration)
-            writer.add_scalar('validation/crps_loss',loss_crps/len(val_set),iteration)
-            
+            print('validation/mre_loss',loss_mre_num/loss_mre_den,iteration)
+            print ('validation/mae_loss',loss_mre_num/len(val_set),iteration)
+            print('validation/crps_loss',loss_crps/len(val_set),iteration)
+            exit()
         if (loss_crps < best_loss):
             best_loss = loss_crps
             best_state_dict = model.state_dict()

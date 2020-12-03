@@ -3,13 +3,15 @@ import numpy as np
 import argparse
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
-import os
-import _pickle as cPickle
 import random
-import math,copy
 import torch.nn.functional as F
-#import properscoring as ps
 from typing import Dict, List, Tuple
+import os,copy
+
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
+torch.manual_seed(1)
+torch.cuda.manual_seed(1)
 
 class PositionalEncoding(nn.Module):
 
@@ -123,19 +125,13 @@ class OurModel(nn.Module):
 
     def forward (self,in_series,out_series,mask,context_info : List[torch.Tensor]):
         mean,std = self.core(in_series,out_series,context_info)
-        return {'mae':self.mae_loss(mean,out_series,context_info[2],mask),'nll':self.nll_loss(mean,std,out_series,mask),'var':(std[mask]).mean()}
+        return {'mae':self.mae_loss(mean,out_series,context_info[2],mask)}
     
     @torch.jit.export
     def validate(self,in_series,out_series,mask,context_info  : List[torch.Tensor]):
         mean,std = self.core(in_series,out_series,context_info)
-        return {'mae':self.mae_loss(mean,out_series,context_info[2],mask),'nll':self.nll_loss(mean,std,out_series,mask),'sum':self.sum_(out_series,context_info[1],context_info[2],mask),
-                'crps':torch.tensor([self.crps_loss(out_series,mean,std,context_info[2],context_info[2],mask)]),'var':(std[mask]).mean()}
+        return {'mae':self.mae_loss(mean,out_series,context_info[2],mask),'sum':self.sum_(out_series,context_info[1],context_info[2],mask)}
     
-    def nll_loss(self,y_pred,sigma_pred,y,mask):
-        err1 = (((y-y_pred)**2/torch.exp(sigma_pred)) + sigma_pred)
-        loss = err1[mask].mean()
-        return loss
-
     def sum_(self,y,mean,std,mask):
         temp = (y.cpu()*std.unsqueeze(1)+mean.unsqueeze(1))*mask.cpu()
         return temp[mask].mean()
@@ -143,15 +139,6 @@ class OurModel(nn.Module):
     def mae_loss(self,y,y_pred,std,mask):
         temp = torch.abs((y_pred-y)*std.unsqueeze(1).cuda())*mask
         return temp[mask].mean()
-
-    def crps_loss(self,x,mu_pred,sigma_pred,mean,std,mask):
-        return 0
-        mu_pred = mu_pred.cpu()*std + mean
-        x = x.cpu()*std + mean
-        sigma_pred = torch.exp(sigma_pred.cpu()/2)*std
-        temp = [ps.crps_gaussian(x_, mu=mu_, sig=sigma_) for x_,mu_,sigma_ in zip(x,mu_pred,sigma_pred)]
-        return sum(temp)/len(temp)
-
 
 
 class TransformerDataset(torch.utils.data.Dataset):
@@ -186,8 +173,8 @@ class TransformerDataset(torch.utils.data.Dataset):
 
         series = copy.deepcopy(series)
         
-        #upper_limit = np.random.uniform(5,15,1).astype(np.int)[0]
-        upper_limit = 10
+        upper_limit = np.random.uniform(5,15,1).astype(np.int)[0]
+        #upper_limit = 10
         
         temp = series[time_:time_+upper_limit]
         mean -= np.nansum(temp)
@@ -209,9 +196,6 @@ class TransformerDataset(torch.utils.data.Dataset):
         
         series = np.nan_to_num(series)
         out_series = np.nan_to_num(out_series)
-        # indices = np.floor(np.random.sample(size = int(series.shape[0]/10))*series.shape[0])
-        # indices = indices.astype(np.int)
-        # series[indices] = 0
 
         #hardcoded for now
         if (self.num_dim == 3):
@@ -281,19 +265,71 @@ def transformer_collate(batch):
     (series,out_series,mask,index,mean,std) = zip(*batch)
     return torch.stack(series,dim=0),torch.stack(out_series,dim=0),torch.stack(mask,dim=0),[torch.LongTensor(list(index)),torch.FloatTensor(list(mean)),torch.FloatTensor(list(std))]
 
+log_file = 'transformer_janta_1stage_block_siblings_fast_by_bigbatch_highlr_noembedinconv'
+#log_file = 'transformer_janta_dummy'
+
+device = 0
+device = torch.device('cuda:%d'%device)
+batch_size = 256
+lr = 1e-3
 
 
-    # def compute_feats2(self,y_context,indices):
-    #     similarities = [torch.cdist(y.weight[x].unsqueeze(0),y.weight.unsqueeze(0),p=2).squeeze()+1e-3 for x,y in zip(indices,self.transformer_embeddings)]
-    #     for i,x in enumerate(similarities) :
-    #         x[np.arange(x.shape[0]),indices[i]] = 0
-    #     weights = [torch.exp(-x/self.tau) for x in similarities]
-    #     indices = [torch.argsort(x)[:,-(self.k+1):-1] for x in weights]
-    #     selected = [y[np.arange(y.shape[0])[:,None],:,x] for x,y in zip(indices,y_context)]
-    #     weights = [y[np.arange(y.shape[0])[:,None],None,x].repeat(1,1,y_context[0].shape[1]) for x,y in zip(indices,weights)]
-    #     for i in range(len(weights)):
-    #         weights[i][selected[i]==0] = weights[i][selected[i]==0]/1e3
-    #     final1 = [x.sum(dim=1,keepdim=True) for x in weights]
-    #     final2 = [(x*y).sum(dim=1,keepdim=True)/y.sum(dim=1,keepdim=True) for x,y in zip(selected,weights)]
-    #     final3 = [torch.std(x,dim=1,keepdim=True) for x in selected]
-    #     return torch.cat(final1+final2+final3,dim=1).transpose(1,2)
+train_set = TransformerDataset('../dataset/2d_block_jantahack_train.npy','../dataset/2d_block_jantahack_train_examples.npy')
+val_set = ValidationTransformerDataset('../dataset/2d_block_jantahack_train.npy','../dataset/2d_block_jantahack_test.npy','../dataset/2d_block_jantahack_test_examples.npy')
+
+train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = transformer_collate)
+val_loader = torch.utils.data.DataLoader(val_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = transformer_collate)
+
+residuals = copy.deepcopy(train_set.feats)
+residuals -= np.nanmean(residuals,axis=0)
+residuals /= np.maximum(np.nanstd(residuals,axis=0),1e-1)
+residuals = torch.from_numpy(np.nan_to_num(residuals)).to(device)
+
+model = OurModel(sizes=[76,28],nkernel=16,embedding_size=16,nhid=32,nlayers=4,nhead=2,residuals = residuals).to(device)
+#model = OurModel(sizes=[76,28],nkernel=16,embedding_size=16,nhid=16,nlayers=2,nhead=1,residuals = residuals).to(device)
+model = torch.jit.script(model)
+
+best_state_dict = model.state_dict()
+best_loss = float('inf')
+writer = SummaryWriter(os.path.join('../Transformer/runs',log_file))
+
+
+print ("Starting Stage 1")
+
+optim = torch.optim.Adam(model.parameters(),lr=lr)
+
+max_epoch = 200
+iteration = 0
+start_epoch = 0
+
+for epoch in range(start_epoch,max_epoch):
+    print ("Starting Epoch : %d"%epoch)
+
+    for inp_,out_,mask,context_info in train_loader :
+        loss = model(inp_.to(device),out_.to(device),mask.to(device),context_info)
+        optim.zero_grad()
+        #loss['nll'].backward()
+        loss['mae'].backward()
+        optim.step()
+        iteration += 1
+        writer.add_scalar('training/nll_loss',loss['nll'],iteration)
+        writer.add_scalar('training/mae_loss',loss['mae'],iteration)
+        writer.add_scalar('training/variance',loss['var'],iteration)
+
+    if (epoch % 1 == 0):
+        loss_mre_num,loss_mre_den,loss_crps = 0,0,0
+        with torch.no_grad():
+            for inp_,out_,mask,context_info in val_loader :
+                loss = model.validate(inp_.to(device),out_.to(device),mask.to(device),context_info)
+                loss_mre_num += loss['mae']*inp_.shape[0]
+                loss_mre_den += loss['sum']*inp_.shape[0]
+                loss_crps += loss['crps']*inp_.shape[0]
+            writer.add_scalar('validation/mre_loss',loss_mre_num/loss_mre_den,iteration)
+            writer.add_scalar('validation/mae_loss',loss_mre_num/len(val_set),iteration)
+            writer.add_scalar('validation/crps_loss',loss_crps/len(val_set),iteration)
+            
+        if (float(loss_crps) < best_loss):
+            best_loss = loss_crps
+            best_state_dict = model.state_dict()
+            
+    print ('done validation')

@@ -4,7 +4,6 @@ import argparse
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 import os,copy
-import matplotlib.pyplot as plt
 import _pickle as cPickle
 from transformer_imputation_helper import *
 torch.backends.cudnn.benchmark = False
@@ -23,21 +22,29 @@ parser.add_argument('-e', '--start-epoch', type=int,help='checkpoint')
 args = parser.parse_args()
 
 
-log_file = 'transformer_janta_1stage'
+log_file = 'transformer_janta_1stage_block_siblings_fast_by_bigbatch_highlr_noembedinconv'
+#log_file = 'transformer_janta_dummy'
 
 args.device = 0
 args.out_dir = '/mnt/infonas/blossom/pbansal/dump'
 device = torch.device('cuda:%d'%args.device)
-batch_size = 64
-lr = 1e-4
+batch_size = 256
+lr = 1e-3
 
 train_set = TransformerDataset('../dataset/2d_block_jantahack_train.npy','../dataset/2d_block_jantahack_train_examples.npy')
-val_set = TransformerDataset('../dataset/2d_block_jantahack_test.npy','../dataset/2d_block_jantahack_test_examples.npy')
+val_set = ValidationTransformerDataset('../dataset/2d_block_jantahack_train.npy','../dataset/2d_block_jantahack_test.npy','../dataset/2d_block_jantahack_test_examples.npy')
 
 train_loader = torch.utils.data.DataLoader(train_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = transformer_collate)
 val_loader = torch.utils.data.DataLoader(val_set,batch_size = batch_size,drop_last = False,shuffle=True,collate_fn = transformer_collate)
 
-model = OurModel(sizes=[76,28],ninp=32,embedding_size=16,nhid=32,nlayers=4,nhead=2).to(device)
+residuals = copy.deepcopy(train_set.feats)
+residuals -= np.nanmean(residuals,axis=0)
+residuals /= np.maximum(np.nanstd(residuals,axis=0),1e-1)
+residuals = torch.from_numpy(np.nan_to_num(residuals)).to(device)
+
+model = OurModel(sizes=[76,28],nkernel=16,embedding_size=16,nhid=32,nlayers=4,nhead=2,residuals = residuals).to(device)
+#model = OurModel(sizes=[76,28],nkernel=16,embedding_size=16,nhid=16,nlayers=2,nhead=1,residuals = residuals).to(device)
+model = torch.jit.script(model)
 
 best_state_dict = model.state_dict()
 best_loss = float('inf')
@@ -49,14 +56,8 @@ print ("Starting Stage 1")
 optim = torch.optim.Adam(model.parameters(),lr=lr)
 
 max_epoch = 200
-switch_epoch = 100
 iteration = 0
 start_epoch = 0
-residuals = torch.from_numpy(train_set.feats).to(device)
-print (residuals.shape)
-residuals -= residuals.mean(dim=0)
-residuals /= residuals.std(dim=0).clamp(min=1e-1)
-model.residuals = residuals
 
 for epoch in range(start_epoch,max_epoch):
     print ("Starting Epoch : %d"%epoch)
@@ -65,11 +66,24 @@ for epoch in range(start_epoch,max_epoch):
         torch.save(best_state_dict,'best_janta_40epochs')
     if (epoch == 100):
         torch.save(best_state_dict,'best_janta_100epochs')
+
+        
+    for inp_,out_,mask,context_info in train_loader :
+        loss = model(inp_.to(device),out_.to(device),mask.to(device),context_info)
+        optim.zero_grad()
+        #loss['nll'].backward()
+        loss['mae'].backward()
+        optim.step()
+        iteration += 1
+        writer.add_scalar('training/nll_loss',loss['nll'],iteration)
+        writer.add_scalar('training/mae_loss',loss['mae'],iteration)
+        writer.add_scalar('training/variance',loss['var'],iteration)
+
     if (epoch % 1 == 0):
         loss_mre_num,loss_mre_den,loss_crps = 0,0,0
         with torch.no_grad():
-            for inp_,context_info in val_loader :
-                loss = model.validate(inp_.to(device),context_info)
+            for inp_,out_,mask,context_info in val_loader :
+                loss = model.validate(inp_.to(device),out_.to(device),mask.to(device),context_info)
                 loss_mre_num += loss['mae']*inp_.shape[0]
                 loss_mre_den += loss['sum']*inp_.shape[0]
                 loss_crps += loss['crps']*inp_.shape[0]
@@ -77,21 +91,8 @@ for epoch in range(start_epoch,max_epoch):
             writer.add_scalar('validation/mae_loss',loss_mre_num/len(val_set),iteration)
             writer.add_scalar('validation/crps_loss',loss_crps/len(val_set),iteration)
             
-        if (loss_crps < best_loss):
+        if (float(loss_crps) < best_loss):
             best_loss = loss_crps
             best_state_dict = model.state_dict()
             
     print ('done validation')
-    
-    for inp_,context_info in train_loader :
-        loss = model(inp_.to(device),context_info)
-        optim.zero_grad()
-        loss['nll'].backward()
-        optim.step()
-        iteration += 1
-        writer.add_scalar('training/nll_loss',loss['nll'],iteration)
-        writer.add_scalar('training/mae_loss',loss['mae'],iteration)
-
-
-
-
